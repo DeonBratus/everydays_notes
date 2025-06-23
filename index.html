@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Note Manager</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f7f7f7; }
+        h2 { margin-top: 2em; }
+        form, .list { background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 2em; box-shadow: 0 2px 8px #0001; }
+        input, textarea, select { margin: 5px 0 15px 0; width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+        button { padding: 8px 16px; border: none; border-radius: 4px; background: #1976d2; color: #fff; cursor: pointer; }
+        button:hover { background: #1565c0; }
+        .item { border-bottom: 1px solid #eee; padding: 10px 0; }
+        .item:last-child { border-bottom: none; }
+        .actions { margin-top: 5px; }
+        .error { color: #d32f2f; }
+        .success { color: #388e3c; }
+        .flex { display: flex; gap: 2em; }
+        .half { flex: 1; }
+    </style>
+</head>
+<body>
+    <h1>Note Manager</h1>
+    <div class="flex">
+        <div class="half">
+            <h2>Категории</h2>
+            <form id="category-form">
+                <input type="hidden" id="category-id">
+                <label>Название:<input type="text" id="category-name" required></label>
+                <label>Цвет:<input type="text" id="category-color"></label>
+                <button type="submit">Сохранить категорию</button>
+                <button type="button" id="category-cancel" style="display:none; background:#aaa;">Отмена</button>
+            </form>
+            <div id="categories-list" class="list"></div>
+        </div>
+        <div class="half">
+            <h2>Заметки</h2>
+            <form id="note-form">
+                <input type="hidden" id="note-id">
+                <label>Заголовок:<input type="text" id="note-title" required></label>
+                <label>Текст:<textarea id="note-content"></textarea></label>
+                <label>Теги (через запятую):<input type="text" id="note-tags"></label>
+                <label>Категория:<select id="note-category"></select></label>
+                <label>Закреплено:<input type="checkbox" id="note-pinned"></label>
+                <button type="submit">Сохранить заметку</button>
+                <button type="button" id="note-cancel" style="display:none; background:#aaa;">Отмена</button>
+            </form>
+            <div id="notes-list" class="list"></div>
+        </div>
+    </div>
+    <div id="msg"></div>
+    <script>
+    const api = {
+        notes: '/api/notes',
+        categories: '/api/categories'
+    };
+    // --- Категории ---
+    async function fetchCategories() {
+        try {
+            const res = await fetch(api.categories + '/');
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            const data = await res.json();
+            console.log('Categories data:', data); // Для отладки
+            
+            const list = document.getElementById('categories-list');
+            const select = document.getElementById('note-category');
+            list.innerHTML = '';
+            select.innerHTML = '<option value="">--Без категории--</option>';
+            
+            if (Array.isArray(data)) {
+                data.forEach(cat => {
+                    list.innerHTML += `<div class="item"><b style="color:${cat.color||'#333'}">${cat.name}</b> <span style="color:#888">${cat.id}</span><div class="actions"><button onclick="editCategory('${cat.id}','${cat.name}','${cat.color||''}')">✏️</button> <button onclick="deleteCategory('${cat.id}')">🗑️</button></div></div>`;
+                    select.innerHTML += `<option value="${cat.id}">${cat.name}</option>`;
+                });
+            } else {
+                console.error('Categories data is not an array:', data);
+                list.innerHTML = '<div class="error">Ошибка загрузки категорий</div>';
+            }
+        } catch (error) {
+            console.error('Error fetching categories:', error);
+            document.getElementById('categories-list').innerHTML = '<div class="error">Ошибка загрузки категорий</div>';
+        }
+    }
+    async function saveCategory(e) {
+        e.preventDefault();
+        const id = document.getElementById('category-id').value;
+        const name = document.getElementById('category-name').value;
+        const color = document.getElementById('category-color').value;
+        const method = id ? 'PATCH' : 'POST';
+        const url = id ? `${api.categories}/${id}/update` : api.categories + '/create';
+        const body = JSON.stringify({ name, color });
+        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body });
+        if (res.ok) {
+            showMsg('Категория сохранена', true);
+            document.getElementById('category-form').reset();
+            document.getElementById('category-cancel').style.display = 'none';
+            fetchCategories();
+            fetchNotes();
+        } else {
+            showMsg('Ошибка: ' + (await res.json()).detail, false);
+        }
+    }
+    function editCategory(id, name, color) {
+        document.getElementById('category-id').value = id;
+        document.getElementById('category-name').value = name;
+        document.getElementById('category-color').value = color;
+        document.getElementById('category-cancel').style.display = '';
+    }
+    async function deleteCategory(id) {
+        if (!confirm('Удалить категорию?')) return;
+        const res = await fetch(`${api.categories}/${id}/hard_delete`, { method: 'DELETE' });
+        if (res.ok) {
+            showMsg('Категория удалена', true);
+            fetchCategories();
+            fetchNotes();
+        } else {
+            showMsg('Ошибка: ' + (await res.json()).detail, false);
+        }
+    }
+    document.getElementById('category-form').onsubmit = saveCategory;
+    document.getElementById('category-cancel').onclick = function() {
+        this.style.display = 'none';
+        document.getElementById('category-form').reset();
+    };
+    // --- Заметки ---
+    async function fetchNotes() {
+        try {
+            const res = await fetch(api.notes + '/');
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            const data = await res.json();
+            console.log('Notes data:', data); // Для отладки
+            
+            const list = document.getElementById('notes-list');
+            list.innerHTML = '';
+            
+            if (Array.isArray(data)) {
+                data.forEach(note => {
+                    list.innerHTML += `<div class="item"><b>${note.title}</b> <span style="color:#888">${note.id}</span><br><small>${note.content||''}</small><br><span>Теги: ${(note.tags||[]).join(', ')}</span><br><span>Категория: ${note.category_id||'-'}</span><br><span>Закреплено: ${note.is_pinned ? 'Да' : 'Нет'}</span><div class="actions"><button onclick="editNote('${note.id}')">✏️</button> <button onclick="deleteNote('${note.id}')">🗑️</button></div></div>`;
+                });
+            } else {
+                console.error('Notes data is not an array:', data);
+                list.innerHTML = '<div class="error">Ошибка загрузки заметок</div>';
+            }
+        } catch (error) {
+            console.error('Error fetching notes:', error);
+            document.getElementById('notes-list').innerHTML = '<div class="error">Ошибка загрузки заметок</div>';
+        }
+    }
+    async function saveNote(e) {
+        e.preventDefault();
+        const id = document.getElementById('note-id').value;
+        const title = document.getElementById('note-title').value;
+        const content = document.getElementById('note-content').value;
+        const tags = document.getElementById('note-tags').value.split(',').map(t=>t.trim()).filter(Boolean);
+        const category_id = document.getElementById('note-category').value || null;
+        const is_pinned = document.getElementById('note-pinned').checked;
+        const method = id ? 'PATCH' : 'POST';
+        const url = id ? `${api.notes}/${id}/update` : api.notes + '/create';
+        const body = JSON.stringify({ title, content, tags, category_id, is_pinned });
+        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body });
+        if (res.ok) {
+            showMsg('Заметка сохранена', true);
+            document.getElementById('note-form').reset();
+            document.getElementById('note-cancel').style.display = 'none';
+            fetchNotes();
+        } else {
+            showMsg('Ошибка: ' + (await res.json()).detail, false);
+        }
+    }
+    async function editNote(id) {
+        const res = await fetch(`${api.notes}/${id}`);
+        if (!res.ok) return showMsg('Ошибка загрузки заметки', false);
+        const note = await res.json();
+        document.getElementById('note-id').value = note.id;
+        document.getElementById('note-title').value = note.title;
+        document.getElementById('note-content').value = note.content || '';
+        document.getElementById('note-tags').value = (note.tags||[]).join(', ');
+        document.getElementById('note-category').value = note.category_id || '';
+        document.getElementById('note-pinned').checked = note.is_pinned;
+        document.getElementById('note-cancel').style.display = '';
+    }
+    async function deleteNote(id) {
+        if (!confirm('Удалить заметку?')) return;
+        const res = await fetch(`${api.notes}/${id}/hard_delete`, { method: 'DELETE' });
+        if (res.ok) {
+            showMsg('Заметка удалена', true);
+            fetchNotes();
+        } else {
+            showMsg('Ошибка: ' + (await res.json()).detail, false);
+        }
+    }
+    document.getElementById('note-form').onsubmit = saveNote;
+    document.getElementById('note-cancel').onclick = function() {
+        this.style.display = 'none';
+        document.getElementById('note-form').reset();
+    };
+    // --- Общие функции ---
+    function showMsg(msg, ok) {
+        const el = document.getElementById('msg');
+        el.innerHTML = `<div class="${ok ? 'success' : 'error'}">${msg}</div>`;
+        setTimeout(()=>el.innerHTML='', 3000);
+    }
+    // --- Инициализация ---
+    fetchCategories();
+    fetchNotes();
+    </script>
+</body>
+</html> 
