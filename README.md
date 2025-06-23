@@ -80,5 +80,8 @@ color: str
 ### OpenAPI(swagger)
 ![](/pics/openapi_example.png)
 
+### Пример запроса через CURL
+![](/pics/curl_exmaple.png)
+
 ### Фронт(сгенеренный)
 ![](/pics/genereted_front.png)
